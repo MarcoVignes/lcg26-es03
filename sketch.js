@@ -1,119 +1,183 @@
-// Variabili condivise: i valori letti qui possono essere usati da più funzioni.
-let data;
-let maxMortality = 0;
-let totalDuration = 0;
-let continents = [];
-let backgroundColor = '#F5F5F5';
-let accentColor = '#66A9ED';
+let data = [];      // array di oggetti, uno per fiume
+let righe;          // righe grezze del CSV (caricate in preload)
+let minLength = Infinity, maxLength = 0;
+let minArea = Infinity, maxArea = 0;
+let minTemp = Infinity, maxTemp = -Infinity;
+let fiumeSotto = null;   // id del fiume sotto il mouse (serve solo per il click)
 
-// Margine attorno al grafico
-let margin = 20;
+// Scala cromatica unica: dal blu scuro (freddo) all'azzurro chiaro (caldo)
+let coldColor = '#1a5296';
+let hotColor  = '#64dfdf';
 
-// Spazio tra le barre del grafico
-let gutter = 4;
+let continentOrder = ['Africa', 'Asia', 'Oceania', 'Australia', 'Europe', 'North America', 'South America'];
 
-// Variabili per l'interazione col mouse
-let hoveredLabel = "";
-let hoveredId = null;
-let hovered = false;
+// Variabili di impaginazione geometrica
+let margin = 24;
+let topBand = 184;
+let rowH = 26;
+let labelH = 34;
+let leftMargin = 0;
+let seaReserve = 150;
+let altezzaTotale = 0;
 
+// Funzione integrata per leggere e pulire il CSV con punto e virgola
+function parseCSV(lines) {
+  const campiNumerici = ["length", "area", "discharge", "tributaries", "min_temp", "max_temp", "avg_temp"];
+  let pulite = lines
+    .map(l => l.replace(/^\uFEFF/, "").trim())
+    .filter(l => l.length > 0);
+  let header = pulite.at(0).split(";");
+  let out = [];
+  for (let r = 1; r < pulite.length; r++) {
+    let celle = pulite[r].split(";");
+    let obj = {};
+    header.forEach((h, k) => obj[h] = celle[k]);
+    campiNumerici.forEach(c => obj[c] = Number(obj[c]));
+    out.push(obj);
+  }
+  return out;
+}
 
-// In p5.js 2, setup() può attendere il caricamento degli asset con async/await.
-async function setup() {
-  // Crea l'area di disegno con le dimensioni della finestra del browser.
+// preload() fa aspettare p5 finché il file non è completamente caricato
+function preload() {
+  righe = loadStrings("assets/Cartel1.csv");
+}
+
+function setup() {
   createCanvas(windowWidth, windowHeight);
+  textFont("Helvetica");
 
-  // loadTable(percorso, separatore, opzioni): "header" usa la prima riga come nomi delle colonne.
-  data = await loadTable("assets/famines.csv", ",", "header");
+  data = parseCSV(righe);
 
-  // getRowCount() restituisce il numero di righe; il ciclo visita ogni carestia.
-  for (let rowNumber = 0; rowNumber < data.getRowCount(); rowNumber++) {
-    // getNum legge una cella come numero; getString legge testo, ad esempio un nome.
-    let duration = data.getNum(rowNumber, "duration");
-    let mortality = data.getNum(rowNumber, "Excess Mortality midpoint");
+  for (let i = 0; i < data.length; i++) {
+    let length = data[i].length;
+    let area = data[i].area;
+    let temp = data[i].avg_temp;
 
-    // Conserva il valore massimo, necessario per riportare tutte le mortalità alla stessa scala.
-    if (mortality > maxMortality) {
-      maxMortality = mortality;
-    }
-
-    // Il totale delle durate serve a distribuire le barre lungo tutta la larghezza del canvas.
-    totalDuration += duration;
+    minLength = min(minLength, length);
+    maxLength = max(maxLength, length);
+    minArea = min(minArea, area);
+    maxArea = max(maxArea, area);
+    minTemp = min(minTemp, temp);
+    maxTemp = max(maxTemp, temp);
   }
+
+  altezzaTotale = topBand + continentOrder.length * labelH + data.length * rowH + margin;
+  resizeCanvas(windowWidth, altezzaTotale);
 }
 
-// draw() viene ripetuta continuamente: ridisegna il grafico e aggiorna l'interazione col mouse.
 function draw() {
-  // Pulisce il fotogramma precedente; il numero indica una tonalità di grigio (0-255).
-  background(backgroundColor);
+  // Sfondo verde prato scuro
+  background('#2b4c32');
 
-  // Sottrae margini e gutter dalla larghezza per mantenere tutto il grafico dentro il canvas.
-  let numberOfGutters = data.getRowCount() - 1;
+  // Titolo
+  textStyle(NORMAL);
+  textSize(12);
+  textAlign(LEFT, TOP);
 
-  // Calcola la larghezza disponibile per le barre, sottraendo margini e gutter.
-  let barsWidth = width - 2 * margin - numberOfGutters * gutter;
-
-  // xPos tiene traccia di dove iniziare la prossima barra; label contiene il testo da mostrare.
-  let xPos = margin;
-
-  // Riparte da "nessuna barra sotto il mouse" a ogni fotogramma.
-  hovered = false;
-
-  // Evita il bordo predefinito delle forme.
+  fill(255);
   noStroke();
+  textStyle(BOLD);
+  textSize(40);
+  text("I fiumi più lunghi del mondo", margin, 14);
 
-  // Ogni riga del CSV diventa una barra del grafico.
-  for (let rowNumber = 0; rowNumber < data.getRowCount(); rowNumber++) {
-    let currentMortality = data.getNum(rowNumber, "Excess Mortality midpoint");
-    let currentDuration = data.getNum(rowNumber, "duration");
-    let country = data.getString(rowNumber, "Country");
-    let id = data.getString(rowNumber, "famine_id");
+  // Sottotitolo / legenda
+  textStyle(NORMAL);
+  textSize(12.5);
+  fill(210);
+  text("Ogni fiume è una linea ondulata: lunghezza linea = lunghezza del fiume · spessore = area del bacino · in fondo il nome del fiume.", margin, 66);
+  text("Colore = temperatura media. La tinta va dal fiume più FREDDO (blu scuro) al più CALDO (azzurro chiaro). Clicca su un fiume per vederne il dettaglio.", margin, 84);
 
-    // map() trasforma i dati in dimensioni visive: durata -> larghezza, mortalità -> altezza.
-    let scaledDuration = map(currentDuration, 0, totalDuration, 0, barsWidth);
-    let scaledMortality = map(currentMortality, 0, maxMortality, 0, height - 2 * margin);
+  fiumeSotto = null;
 
-    // Imposta il colore in base al continente e disegna il rettangolo dentro il margine superiore.
-    fill(backgroundColor);
-    stroke(accentColor);
-    rect(xPos, margin, scaledDuration, scaledMortality);
+  // Evita errori durante il caricamento iniziale
+  if (!data || data.length === 0) return;
 
-    // Verifica se il puntatore si trova dentro questa barra e memorizza il paese corrispondente.
-    if (
-      mouseX >= xPos &&
-      mouseX <= xPos + scaledDuration &&
-      mouseY >= margin &&
-      mouseY <= margin + scaledMortality
-    ) {
-      hoveredLabel = country;
-      hoveredId = id;
-      hovered = true;
+  let y = topBand;
+  let lineAreaW = width - leftMargin - seaReserve;
+
+  let startY = topBand + labelH - 10;
+  let endY = altezzaTotale - margin;
+
+  stroke('#e6ccb2');
+  strokeWeight(6);
+  strokeCap(ROUND);
+  line(leftMargin, startY, leftMargin, endY);
+
+  for (let continent of continentOrder) {
+    let haFiumi = false;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].continent === continent) {
+        haFiumi = true;
+        break;
+      }
     }
 
-    // Sposta la prossima barra dopo quella corrente, lasciando il gutter tra le due.
-    xPos += scaledDuration + gutter;
+    if (haFiumi) {
+      y += labelH;
+      fill(255);
+      noStroke();
+      textStyle(BOLD);
+      textSize(17);
+      text(continent, leftMargin + 8, y - labelH * 0.45);
+      textStyle(NORMAL);
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].continent !== continent) continue;
+
+      let cy = y + rowH / 2;
+      let length = data[i].length;
+      let area = data[i].area;
+      let temp = data[i].avg_temp;
+      let name = data[i].name;
+
+      let lineLen = map(length, minLength, maxLength, 40, lineAreaW);
+
+      textSize(min(12, rowH * 0.5));
+      let xEnd = leftMargin + lineLen + 8 + textWidth(name);
+
+      // Area cliccabile: dalla linea alla fine del nome
+      if (mouseX >= leftMargin && mouseX <= xEnd && abs(mouseY - cy) <= rowH / 2) {
+        fiumeSotto = data[i].id;
+      }
+
+      // Calcolo colore globale dal blu scuro (freddo) all'azzurro chiaro (caldo)
+      let t = (maxTemp > minTemp) ? (temp - minTemp) / (maxTemp - minTemp) : 1;
+      let col = lerpColor(color(coldColor), color(hotColor), constrain(t, 0, 1));
+
+      let logNorm = map(log(area), log(minArea), log(maxArea), 0, 1);
+      let thickness = 1 + pow(logNorm, 1.6) * (rowH * 0.95 - 1);
+
+      noFill();
+      stroke(col);
+      strokeWeight(thickness);
+      strokeCap(ROUND);
+
+      beginShape();
+      for (let x = 0; x <= lineLen; x += 4) {
+        vertex(leftMargin + x, cy + sin(x * 0.045) * 2.4);
+      }
+      endShape();
+
+      // Nome del fiume accanto
+      noStroke();
+      fill(210);
+      textAlign(LEFT, CENTER);
+      textSize(min(12, rowH * 0.5));
+      text(name, leftMargin + lineLen + 8, cy);
+
+      y += rowH;
+    }
   }
 
-  // Mostra il paese vicino al puntatore solo quando questo si trova sopra una barra.
-  if (hovered) {
-    cursor(HAND);
-    fill(0);
-    stroke(backgroundColor);
-    // L'offset evita di disegnare il testo esattamente sotto il puntatore.
-    text(hoveredLabel, mouseX + 8, mouseY + 16);
-  } else {
-    cursor(ARROW);
-  }
+  // Il cursore diventa una manina sopra i fiumi cliccabili
+  cursor(fiumeSotto !== null ? HAND : ARROW);
 }
 
+// Click su un fiume -> apre la pagina di dettaglio
 function mousePressed() {
-  // Define parameters
-
-  // Build the new URL. same rott, but the pafe is page.html
-  let newURL = "detail.html?famine=" + hoveredId;
-
-  console.log(newURL);
-
-  // Redirect in the same tab
-  window.location.href = newURL;
+  if (fiumeSotto !== null) {
+    window.location.href = "fiume.html?id=" + encodeURIComponent(fiumeSotto);
+  }
 }
