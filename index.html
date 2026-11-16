@@ -3,33 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>L'Anatomia dei Grandi Fiumi - Visualizzazione Dati</title>
-
-    <!-- Collegamento alle librerie locali presenti nella tua cartella -->
+    <title>Dettaglio Fiume</title>
+    
+    <!-- Collegamento alle librerie locali di p5.js -->
     <script src="libraries/p5.min.js"></script>
     <script src="libraries/p5.sound.min.js"></script>
-
+    
+    <link rel="stylesheet" href="style.css">
+    
     <style>
         body {
             margin: 0;
             padding: 0;
-            background-color: #11151c;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: sans-serif;
+            background-color: #2b4c32;
             overflow-x: hidden;
         }
         canvas {
             display: block;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
     </style>
 </head>
 <body>
-    <!-- Funzioni condivise (lettura del CSV) e sketch principale -->
-    <script src="data.js"></script>
-    <script src="sketch.js"></script>
+    <script src="fiume.js"></script>
 </body>
 </html>

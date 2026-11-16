@@ -1,35 +1,29 @@
-let data = [];
-let righe;
-let fiume = null;
+let data = [];      
+let righe;          
+let minLength = Infinity, maxLength = 0;
+let minArea = Infinity, maxArea = 0;
+let minTemp = Infinity, maxTemp = -Infinity;
+let fiumeSotto = null;   
 
-// Stesse variabili geometriche di sketch.js
-const margin = 24;
-const topBand = 184;
-const rowH = 26;
-const labelH = 34;
-const seaReserve = 150;
-const barH = 16;
+let coldColor = '#1a5296';
+let hotColor  = '#64dfdf';
 
-// Parametri numerici da mostrare nel grafico.
-// I parametri con lo stesso "gruppo" condividono la stessa scala (le tre temperature).
-const parametri = [
-  { key: 'length',      label: 'Lunghezza',       unit: 'km',   gruppo: 'length' },
-  { key: 'area',        label: 'Area del bacino', unit: 'km²',  gruppo: 'area' },
-  { key: 'discharge',   label: 'Portata',         unit: 'm³/s', gruppo: 'discharge' },
-  { key: 'tributaries', label: 'Affluenti',       unit: '',     gruppo: 'tributaries' },
-  { key: 'min_temp',    label: 'Temp. minima',    unit: '°C',   gruppo: 'temp' },
-  { key: 'max_temp',    label: 'Temp. massima',   unit: '°C',   gruppo: 'temp' },
-  { key: 'avg_temp',    label: 'Temp. media',     unit: '°C',   gruppo: 'temp' }
-];
-let scale = {};   // gruppo -> { lo, hi }
+let continentOrder = ['Africa', 'Asia', 'Oceania', 'Australia', 'Europe', 'North America', 'South America'];
 
-// Funzione integrata per leggere e pulire il CSV con punto e virgola
+let margin = 24;
+let topBand = 184;
+let rowH = 26;
+let labelH = 34;
+let leftMargin = 0;
+let seaReserve = 150;
+let altezzaTotale = 0;
+
 function parseCSV(lines) {
   const campiNumerici = ["length", "area", "discharge", "tributaries", "min_temp", "max_temp", "avg_temp"];
   let pulite = lines
     .map(l => l.replace(/^\uFEFF/, "").trim())
     .filter(l => l.length > 0);
-  let header = pulite.at(0).split(";");
+  let header = pulite[0].split(";");
   let out = [];
   for (let r = 1; r < pulite.length; r++) {
     let celle = pulite[r].split(";");
@@ -46,111 +40,131 @@ function preload() {
 }
 
 function setup() {
+  createCanvas(windowWidth, windowHeight);
+  textFont("Helvetica");
+
   data = parseCSV(righe);
 
-  let id = new URLSearchParams(window.location.search).get('id');
-  fiume = data.find(r => r.id === id) || null;
-  document.title = fiume ? fiume.name : "Fiume non trovato";
+  for (let i = 0; i < data.length; i++) {
+    let length = data[i].length;
+    let area = data[i].area;
+    let temp = data[i].avg_temp;
 
-  // Scala di ogni gruppo: da min(0, minimo) a max(0, massimo) su tutto il dataset
-  for (let p of parametri) {
-    let g = p.gruppo;
-    if (!scale[g]) scale[g] = { lo: 0, hi: 0 };
-    for (let r of data) {
-      scale[g].lo = min(scale[g].lo, r[p.key]);
-      scale[g].hi = max(scale[g].hi, r[p.key]);
-    }
+    minLength = min(minLength, length);
+    maxLength = max(maxLength, length);
+    minArea = min(minArea, area);
+    maxArea = max(maxArea, area);
+    minTemp = min(minTemp, temp);
+    maxTemp = max(maxTemp, temp);
   }
 
-  createCanvas(windowWidth, altezza());
-  textFont("Helvetica");
-}
-
-function altezza() {
-  return topBand + parametri.length * (labelH + rowH) + margin;
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, altezza());
+  altezzaTotale = topBand + continentOrder.length * labelH + data.length * rowH + margin;
+  resizeCanvas(windowWidth, altezzaTotale);
 }
 
 function draw() {
-  // Sfondo verde prato scuro
-  background('#2b4c32');
-  noStroke();
+  background('#1b4332');
+
+  textStyle(NORMAL);
+  textSize(12);
   textAlign(LEFT, TOP);
 
-  // Gestione caso fiume non trovato
-  if (!fiume) {
-    fill(255);
-    textStyle(BOLD);
-    textSize(40);
-    text("Fiume non trovato", margin, 14);
-    return;
-  }
-
-  // Titolo: identico per posizione (margin, 14) e grandezza (40) a sketch.js
   fill(255);
+  noStroke();
   textStyle(BOLD);
   textSize(40);
-  text(fiume.name, margin, 14);
+  text("I fiumi più lunghi del mondo", margin, 14);
 
-  // Sottotitolo allineato a sketch.js (y = 66)
   textStyle(NORMAL);
   textSize(12.5);
   fill(210);
-  text("Continente: " + fiume.continent + "   ·   Sfocia in: " + fiume.outflow, margin, 66);
+  text("Ogni fiume è una linea ondulata: lunghezza linea = lunghezza del fiume · spessore = area del bacino · in fondo il nome del fiume.", margin, 66);
+  text("Colore = temperatura media. La tinta va dal fiume più FREDDO (blu scuro) al più CALDO (azzurro chiaro). Clicca su un fiume per vederne il dettaglio.", margin, 84);
 
-  // Disposizione identica a sketch.js
+  fiumeSotto = null;
+
+  if (!data || data.length === 0) return;
+
   let y = topBand;
-  let chartX0 = margin;
-  let chartX1 = max(chartX0 + 100, width - margin - seaReserve);
+  let lineAreaW = width - leftMargin - seaReserve;
 
-  for (let i = 0; i < parametri.length; i++) {
-    let p = parametri[i];
-    let s = scale[p.gruppo];
-    let v = fiume[p.key];
+  let startY = topBand + labelH - 10;
+  let endY = altezzaTotale - margin;
 
-    // 1. Titoletto del parametro (stesso stile e spaziatura dei continenti in sketch.js)
-    y += labelH;
-    fill(255);
-    noStroke();
-    textStyle(BOLD);
-    textSize(17);
-    textAlign(LEFT, TOP);
-    text(p.label, margin, y - labelH * 0.45);
-    textStyle(NORMAL);
+  stroke('#e6ccb2');
+  strokeWeight(6);
+  strokeCap(ROUND);
+  line(leftMargin, startY, leftMargin, endY);
 
-    // 2. Rappresentazione del dato subito sotto (stessa altezza riga rowH di sketch.js)
-    let cy = y + rowH / 2;
-
-    // Binario di sfondo (intervallo di tutti i fiumi)
-    fill(255, 22);
-    rect(chartX0, cy - barH / 2, chartX1 - chartX0, barH, 4);
-
-    // Barra: parte dallo zero e arriva al valore
-    let xZero = map(0, s.lo, s.hi, chartX0, chartX1);
-    let xVal  = map(v, s.lo, s.hi, chartX0, chartX1);
-    let barLeft = min(xZero, xVal);
-    let barWidth = max(abs(xVal - xZero), 2);
-
-    fill(v < 0 ? '#1a5296' : '#64dfdf');
-    rect(barLeft, cy - barH / 2, barWidth, barH, 4);
-
-    // Linea dello zero (solo se ci sono valori negativi)
-    if (s.lo < 0) {
-      stroke(255, 120);
-      strokeWeight(1);
-      line(xZero, cy - barH / 2 - 4, xZero, cy + barH / 2 + 4);
-      noStroke();
+  for (let continent of continentOrder) {
+    let haFiumi = false;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].continent === continent) {
+        haFiumi = true;
+        break;
+      }
     }
 
-    // Didascalia numerica posizionata esattamente 8px dopo la barra (come in sketch.js)
-    fill(210);
-    textAlign(LEFT, CENTER);
-    textSize(min(12, rowH * 0.5));
-    text(v.toLocaleString('it-IT') + (p.unit ? " " + p.unit : ""), barLeft + barWidth + 8, cy);
+    if (haFiumi) {
+      y += labelH;
+      fill(255);
+      noStroke();
+      textStyle(BOLD);
+      textSize(17);
+      text(continent, leftMargin + 8, y - labelH * 0.45);
+      textStyle(NORMAL);
+    }
 
-    y += rowH;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].continent !== continent) continue;
+
+      let cy = y + rowH / 2;
+      let length = data[i].length;
+      let area = data[i].area;
+      let temp = data[i].avg_temp;
+      let name = data[i].name;
+
+      let lineLen = map(length, minLength, maxLength, 40, lineAreaW);
+
+      textSize(min(12, rowH * 0.5));
+      let xEnd = leftMargin + lineLen + 8 + textWidth(name);
+
+      if (mouseX >= leftMargin && mouseX <= xEnd && abs(mouseY - cy) <= rowH / 2) {
+        fiumeSotto = data[i].id;
+      }
+
+      let t = (maxTemp > minTemp) ? (temp - minTemp) / (maxTemp - minTemp) : 1;
+      let col = lerpColor(color(coldColor), color(hotColor), constrain(t, 0, 1));
+
+      let logNorm = map(log(area), log(minArea), log(maxArea), 0, 1);
+      let thickness = 1 + pow(logNorm, 1.6) * (rowH * 0.95 - 1);
+
+      noFill();
+      stroke(col);
+      strokeWeight(thickness);
+      strokeCap(ROUND);
+
+      beginShape();
+      for (let x = 0; x <= lineLen; x += 4) {
+        vertex(leftMargin + x, cy + sin(x * 0.045) * 2.4);
+      }
+      endShape();
+
+      noStroke();
+      fill(210);
+      textAlign(LEFT, CENTER);
+      textSize(min(12, rowH * 0.5));
+      text(name, leftMargin + lineLen + 8, cy);
+
+      y += rowH;
+    }
+  }
+
+  cursor(fiumeSotto !== null ? HAND : ARROW);
+}
+
+function mousePressed() {
+  if (fiumeSotto !== null) {
+    window.location.href = "fiume.html?id=" + encodeURIComponent(fiumeSotto);
   }
 }
